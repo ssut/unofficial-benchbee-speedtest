@@ -175,7 +175,6 @@ func (st *Speedtest) worker(ctx context.Context, workerType SpeedtestWorkerType,
 	}
 	defer c.Close()
 
-	writeBuffer := make([]byte, 64500)
 	var fn func()
 	switch workerType {
 	case SpeedtestDownloadWorker:
@@ -199,6 +198,7 @@ func (st *Speedtest) worker(ctx context.Context, workerType SpeedtestWorkerType,
 
 	case SpeedtestUploadWorker:
 		{
+			writeBuffer := make([]byte, 64500)
 			fn = func() {
 				wc, err := c.NextWriter(websocket.BinaryMessage)
 				if err != nil {
