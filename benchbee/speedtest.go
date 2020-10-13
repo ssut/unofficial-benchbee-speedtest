@@ -19,7 +19,7 @@ import (
 
 const defaultUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/86.0.4240.75 Safari/537.36 Edg/86.0.622.38"
 
-const defaultBufferSize = 1024 * 4
+const defaultBufferSize = 1024 * 16
 
 type SpeedtestIntermediateResultCallback = func(result SpeedtestIntermediateResult)
 
@@ -97,7 +97,8 @@ func (st *Speedtest) TestPing() error {
 	if err != nil {
 		return err
 	}
-	c.SetCompressionLevel(1)
+	c.EnableWriteCompression(false)
+	c.SetCompressionLevel(-2)
 	defer c.Close()
 
 	done := make(chan struct{})
@@ -171,7 +172,7 @@ func (st *Speedtest) worker(ctx context.Context, workerType SpeedtestWorkerType,
 
 	c, _, err := st.websocketDialer.Dial(wsURL, st.Options.Header)
 	c.EnableWriteCompression(false)
-	c.SetCompressionLevel(1)
+	c.SetCompressionLevel(-2)
 	if err != nil {
 		panic(err)
 	}
