@@ -18,9 +18,6 @@ import (
 )
 
 const defaultUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/86.0.4240.75 Safari/537.36 Edg/86.0.622.38"
-const defaultPingCount = 50
-const defaultTestDuration = 6 * time.Second
-const defaultSimultaneousConnections = 5
 
 const defaultBufferSize = 1024 * 4
 
