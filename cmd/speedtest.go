@@ -97,4 +97,5 @@ func testSpeed(options benchbee.SpeedtestOptions) {
 	totalUploadSeconds := float64(st.Result.TotalUploadDuration.Milliseconds()) / 1000.0
 	averageUploadSpeed := float64(st.Result.TotalBytesUploaded) / totalUploadSeconds / 125000
 	fmt.Printf("\t  Upload: %7.2f Mbps (data used: %s)\n", averageUploadSpeed, humanize.Bytes(st.Result.TotalBytesUploaded))
+	fmt.Println()
 }
