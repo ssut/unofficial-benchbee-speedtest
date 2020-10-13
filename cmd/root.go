@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"log"
+	"net"
 	"os"
 	"strconv"
 	"time"
@@ -9,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"github.com/ssut/unofficial-benchbee-speedtest/benchbee"
+	"github.com/ssut/unofficial-benchbee-speedtest/tool"
 )
 
 var (
@@ -27,7 +29,30 @@ var (
 			}
 			userAgentStr := os.Getenv("BENCHBEE_USER_AGENT")
 
+			ifname, err := cmd.PersistentFlags().GetString("interface")
+			if err != nil {
+				log.Fatal(err)
+			}
+			ipAddr, err := cmd.PersistentFlags().GetString("ip")
+			if err != nil {
+				log.Fatal(err)
+			}
+
+			dialer := &net.Dialer{}
+			if ifname != "" {
+				dialer, err = tool.CreateDialerUsingInterfaceName(ifname)
+				if err != nil {
+					log.Fatal(err)
+				}
+			} else if ipAddr != "" {
+				dialer, err = tool.CreateDialerUsingIPAddress(ipAddr)
+				if err != nil {
+					log.Fatal(err)
+				}
+			}
+
 			options := benchbee.SpeedtestOptions{
+				Dialer:                  dialer,
 				UserAgent:               userAgentStr,
 				PingCount:               defaultPingCount,
 				DownloadTestDuration:    defaultTestDuration,

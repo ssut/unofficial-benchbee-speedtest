@@ -24,8 +24,17 @@ type IPInfo struct {
 	As          string  `json:"as"`
 }
 
-func GetIPInfo(ipAddress string) (*IPInfo, error) {
-	resp, err := http.Get(fmt.Sprintf("http://ip-api.com/json/%s", ipAddress))
+func GetIPInfo(ipAddress string, client *http.Client) (*IPInfo, error) {
+	if client != nil {
+		client = &http.Client{}
+	}
+
+	req, err := http.NewRequest("GET", fmt.Sprintf("http://ip-api.com/json/%s", ipAddress), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
 	}

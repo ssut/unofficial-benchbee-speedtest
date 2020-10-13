@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"log"
+	"net/http"
 	"time"
 
 	"github.com/dustin/go-humanize"
@@ -17,7 +18,12 @@ const defaultTestDuration = 6 * time.Second
 const defaultSimultaneousConnections = 5
 
 func testSpeed(options benchbee.SpeedtestOptions) {
-	info, err := benchbee.FetchBasicInfo()
+	info, err := benchbee.FetchBasicInfo(&http.Client{
+		Transport: &http.Transport{
+			Dial:    options.Dialer.Dial,
+			DialTLS: options.Dialer.Dial,
+		},
+	})
 	if err != nil {
 		log.Fatal(err)
 	}

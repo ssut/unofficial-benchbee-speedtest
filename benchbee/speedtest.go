@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -39,6 +40,7 @@ type SpeedtestOptions struct {
 	Header                  http.Header
 	CallbackPollInterval    time.Duration
 	UserAgent               string
+	Dialer                  *net.Dialer
 }
 
 type SpeedtestResult struct {
@@ -59,6 +61,8 @@ type Speedtest struct {
 	Info    *BenchBeeMetadata
 	Options *SpeedtestOptions
 	Result  *SpeedtestResult
+
+	websocketDialer *websocket.Dialer
 }
 
 func NewSpeedtest(info *BenchBeeMetadata, options SpeedtestOptions) *Speedtest {
@@ -78,11 +82,16 @@ func NewSpeedtest(info *BenchBeeMetadata, options SpeedtestOptions) *Speedtest {
 		}
 	}
 
+	st.websocketDialer = websocket.DefaultDialer
+	if options.Dialer != nil {
+		st.websocketDialer.NetDial = options.Dialer.Dial
+	}
+
 	return st
 }
 
 func (st *Speedtest) TestPing() error {
-	c, _, err := websocket.DefaultDialer.Dial(st.Info.PingWS, st.Options.Header)
+	c, _, err := st.websocketDialer.Dial(st.Info.PingWS, st.Options.Header)
 	if err != nil {
 		return err
 	}
@@ -158,7 +167,7 @@ func (st *Speedtest) worker(ctx context.Context, workerType SpeedtestWorkerType,
 		break
 	}
 
-	c, _, err := websocket.DefaultDialer.Dial(wsURL, st.Options.Header)
+	c, _, err := st.websocketDialer.Dial(wsURL, st.Options.Header)
 	c.EnableWriteCompression(false)
 	c.SetCompressionLevel(1)
 	if err != nil {

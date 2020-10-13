@@ -33,14 +33,13 @@ func verifyServerURL(url string) error {
 	return nil
 }
 
-func FetchBasicInfo() (*BenchBeeMetadata, error) {
+func FetchBasicInfo(client *http.Client) (*BenchBeeMetadata, error) {
 	req, err := http.NewRequest("GET", "http://beta.benchbee.co.kr/home.asp", nil)
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("User-Agent", defaultUserAgent)
 
-	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
@@ -104,7 +103,7 @@ func FetchBasicInfo() (*BenchBeeMetadata, error) {
 	if representativeURL == nil || representativeURL.Host == "" {
 		return nil, errors.New("Invalid Representative Server URL")
 	}
-	serverIPInfo, err := tool.GetIPInfo(representativeURL.Hostname())
+	serverIPInfo, err := tool.GetIPInfo(representativeURL.Hostname(), client)
 	if err != nil {
 		return nil, err
 	}
