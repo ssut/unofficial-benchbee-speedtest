@@ -1,4 +1,4 @@
-package main
+package benchbee
 
 import (
 	"context"
@@ -13,7 +13,13 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/ssut/unofficial-benchbee-speedtest/tool"
 )
+
+const defaultUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/86.0.4240.75 Safari/537.36 Edg/86.0.622.38"
+const defaultPingCount = 50
+const defaultTestDuration = 6 * time.Second
+const defaultSimultaneousConnections = 5
 
 type SpeedtestIntermediateResultCallback = func(result SpeedtestIntermediateResult)
 
@@ -25,25 +31,23 @@ const (
 )
 
 type SpeedtestOptions struct {
-	pingCount               int
-	downloadTestDuration    time.Duration
-	uploadTestDuration      time.Duration
-	downloadTestConcurrency int
-	uploadTestConcurrency   int
-	header                  http.Header
-	callbackPollInterval    time.Duration
+	PingCount               int
+	DownloadTestDuration    time.Duration
+	UploadTestDuration      time.Duration
+	DownloadTestConcurrency int
+	UploadTestConcurrency   int
+	Header                  http.Header
+	CallbackPollInterval    time.Duration
+	UserAgent               string
 }
 
 type SpeedtestResult struct {
-	pingMillis   float64
-	jitterMillis float64
-	downloadMbps float64
-	uploadMbps   float64
-
-	totalBytesDownloaded  uint64
-	totalDownloadDuration time.Duration
-	totalBytesUploaded    uint64
-	totalUploadDuration   time.Duration
+	PingMillis            float64
+	JitterMillis          float64
+	TotalBytesDownloaded  uint64
+	TotalDownloadDuration time.Duration
+	TotalBytesUploaded    uint64
+	TotalUploadDuration   time.Duration
 }
 
 type SpeedtestIntermediateResult struct {
@@ -52,30 +56,33 @@ type SpeedtestIntermediateResult struct {
 }
 
 type Speedtest struct {
-	info    *BenchBeeMetadata
-	options *SpeedtestOptions
-
-	result *SpeedtestResult
+	Info    *BenchBeeMetadata
+	Options *SpeedtestOptions
+	Result  *SpeedtestResult
 }
 
 func NewSpeedtest(info *BenchBeeMetadata, options SpeedtestOptions) *Speedtest {
 	st := &Speedtest{
-		info:    info,
-		options: &options,
-		result:  &SpeedtestResult{},
+		Info:    info,
+		Options: &options,
+		Result:  &SpeedtestResult{},
 	}
-	if st.options.header == nil {
-		st.options.header = http.Header{}
+	if st.Options.Header == nil {
+		st.Options.Header = http.Header{}
 	}
-	if st.options.header.Get("user-agent") == "" {
-		st.options.header.Add("user-agent", userAgent)
+	if st.Options.Header.Get("user-agent") == "" {
+		if st.Options.UserAgent == "" {
+			st.Options.Header.Add("user-agent", defaultUserAgent)
+		} else {
+			st.Options.Header.Add("user-agent", st.Options.UserAgent)
+		}
 	}
 
 	return st
 }
 
 func (st *Speedtest) TestPing() error {
-	c, _, err := websocket.DefaultDialer.Dial(st.info.PingWS, st.options.header)
+	c, _, err := websocket.DefaultDialer.Dial(st.Info.PingWS, st.Options.Header)
 	if err != nil {
 		return err
 	}
@@ -83,7 +90,7 @@ func (st *Speedtest) TestPing() error {
 	defer c.Close()
 
 	done := make(chan struct{})
-	resultChan := make(chan int64, st.options.pingCount)
+	resultChan := make(chan int64, st.Options.PingCount)
 
 	go func(maxCount int) {
 		defer close(done)
@@ -92,7 +99,7 @@ func (st *Speedtest) TestPing() error {
 		var t int64
 		sendPing := func() {
 			i++
-			t = GetTime()
+			t = tool.GetTime()
 			c.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf("rtt:%d", t)))
 		}
 
@@ -109,7 +116,7 @@ func (st *Speedtest) TestPing() error {
 				continue
 			}
 
-			latency := GetTime() - respondedTime
+			latency := tool.GetTime() - respondedTime
 			resultChan <- latency
 			if i+1 > maxCount {
 				return
@@ -117,14 +124,14 @@ func (st *Speedtest) TestPing() error {
 
 			sendPing()
 		}
-	}(st.options.pingCount)
+	}(st.Options.PingCount)
 
 	latencies := []float64{}
 	for {
 		select {
 		case <-done:
-			st.result.pingMillis = GetAverage(latencies)
-			st.result.jitterMillis = CalculateJitter(latencies)
+			st.Result.PingMillis = tool.GetAverage(latencies)
+			st.Result.JitterMillis = tool.CalculateJitter(latencies)
 			return nil
 
 		case latency := <-resultChan:
@@ -143,15 +150,15 @@ func (st *Speedtest) worker(ctx context.Context, workerType SpeedtestWorkerType,
 	var wsURL string
 	switch workerType {
 	case SpeedtestDownloadWorker:
-		wsURL = st.info.DownloadWS
+		wsURL = st.Info.DownloadWS
 		break
 
 	case SpeedtestUploadWorker:
-		wsURL = st.info.UploadWS
+		wsURL = st.Info.UploadWS
 		break
 	}
 
-	c, _, err := websocket.DefaultDialer.Dial(wsURL, st.options.header)
+	c, _, err := websocket.DefaultDialer.Dial(wsURL, st.Options.Header)
 	c.EnableWriteCompression(false)
 	c.SetCompressionLevel(1)
 	if err != nil {
@@ -214,13 +221,13 @@ func (st *Speedtest) worker(ctx context.Context, workerType SpeedtestWorkerType,
 }
 
 func (st *Speedtest) TestDownload(cb SpeedtestIntermediateResultCallback) error {
-	respawnChan := make(chan context.Context, st.options.downloadTestConcurrency)
+	respawnChan := make(chan context.Context, st.Options.DownloadTestConcurrency)
 	readyWG := &sync.WaitGroup{}
 	nChan := make(chan int64, 1024)
 	var endsChan <-chan (time.Time)
 	var preparedAt time.Time
-	var cancels = make([]context.CancelFunc, st.options.downloadTestConcurrency)
-	for i := 0; i < st.options.downloadTestConcurrency; i++ {
+	var cancels = make([]context.CancelFunc, st.Options.DownloadTestConcurrency)
+	for i := 0; i < st.Options.DownloadTestConcurrency; i++ {
 		ctx, cancel := context.WithCancel(context.Background())
 		cancels[i] = cancel
 		readyWG.Add(1)
@@ -228,7 +235,7 @@ func (st *Speedtest) TestDownload(cb SpeedtestIntermediateResultCallback) error 
 	}
 	readyWG.Wait()
 	preparedAt = time.Now()
-	endsChan = time.After(st.options.downloadTestDuration)
+	endsChan = time.After(st.Options.DownloadTestDuration)
 
 	var bytesRecv uint64
 	pollFinishChan := make(chan struct{})
@@ -248,7 +255,7 @@ func (st *Speedtest) TestDownload(cb SpeedtestIntermediateResultCallback) error 
 				return
 			}
 		}
-	}(&bytesRecv, preparedAt, st.options.callbackPollInterval, pollFinishChan, cb)
+	}(&bytesRecv, preparedAt, st.Options.CallbackPollInterval, pollFinishChan, cb)
 
 	for {
 		select {
@@ -266,8 +273,8 @@ func (st *Speedtest) TestDownload(cb SpeedtestIntermediateResultCallback) error 
 				cancel()
 			}
 
-			st.result.totalDownloadDuration = endedAt.Sub(preparedAt)
-			st.result.totalBytesDownloaded = uint64(bytesRecv)
+			st.Result.TotalDownloadDuration = endedAt.Sub(preparedAt)
+			st.Result.TotalBytesDownloaded = uint64(bytesRecv)
 			close(nChan)
 
 			return nil
@@ -276,13 +283,13 @@ func (st *Speedtest) TestDownload(cb SpeedtestIntermediateResultCallback) error 
 }
 
 func (st *Speedtest) TestUpload(cb SpeedtestIntermediateResultCallback) error {
-	respawnChan := make(chan context.Context, st.options.uploadTestConcurrency)
+	respawnChan := make(chan context.Context, st.Options.UploadTestConcurrency)
 	readyWG := &sync.WaitGroup{}
 	nChan := make(chan int64, 1024)
 	var endsChan <-chan (time.Time)
 	var preparedAt time.Time
-	var cancels = make([]context.CancelFunc, st.options.uploadTestConcurrency)
-	for i := 0; i < st.options.uploadTestConcurrency; i++ {
+	var cancels = make([]context.CancelFunc, st.Options.UploadTestConcurrency)
+	for i := 0; i < st.Options.UploadTestConcurrency; i++ {
 		ctx, cancel := context.WithCancel(context.Background())
 		cancels[i] = cancel
 		readyWG.Add(1)
@@ -290,7 +297,7 @@ func (st *Speedtest) TestUpload(cb SpeedtestIntermediateResultCallback) error {
 	}
 	readyWG.Wait()
 	preparedAt = time.Now()
-	endsChan = time.After(st.options.uploadTestDuration)
+	endsChan = time.After(st.Options.UploadTestDuration)
 
 	var bytesSent uint64
 	pollFinishChan := make(chan struct{})
@@ -310,7 +317,7 @@ func (st *Speedtest) TestUpload(cb SpeedtestIntermediateResultCallback) error {
 				return
 			}
 		}
-	}(&bytesSent, preparedAt, st.options.callbackPollInterval, pollFinishChan, cb)
+	}(&bytesSent, preparedAt, st.Options.CallbackPollInterval, pollFinishChan, cb)
 
 	for {
 		select {
@@ -328,8 +335,8 @@ func (st *Speedtest) TestUpload(cb SpeedtestIntermediateResultCallback) error {
 				cancel()
 			}
 
-			st.result.totalUploadDuration = endedAt.Sub(preparedAt)
-			st.result.totalBytesUploaded = uint64(bytesSent)
+			st.Result.TotalUploadDuration = endedAt.Sub(preparedAt)
+			st.Result.TotalBytesUploaded = uint64(bytesSent)
 			close(nChan)
 
 			return nil

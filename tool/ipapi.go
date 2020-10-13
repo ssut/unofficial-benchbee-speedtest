@@ -1,4 +1,4 @@
-package main
+package tool
 
 import (
 	"encoding/json"
@@ -24,7 +24,7 @@ type IPInfo struct {
 	As          string  `json:"as"`
 }
 
-func getIPInfo(ipAddress string) (*IPInfo, error) {
+func GetIPInfo(ipAddress string) (*IPInfo, error) {
 	resp, err := http.Get(fmt.Sprintf("http://ip-api.com/json/%s", ipAddress))
 	if err != nil {
 		return nil, err

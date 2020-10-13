@@ -1,4 +1,4 @@
-package main
+package benchbee
 
 import (
 	"errors"
@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/PuerkitoBio/goquery"
+	"github.com/ssut/unofficial-benchbee-speedtest/tool"
 )
 
 type BenchBeeMetadata struct {
@@ -21,7 +22,7 @@ type BenchBeeMetadata struct {
 	DownloadWS string
 	UploadWS   string
 
-	ServerIPInfo *IPInfo
+	ServerIPInfo *tool.IPInfo
 }
 
 func verifyServerURL(url string) error {
@@ -32,12 +33,12 @@ func verifyServerURL(url string) error {
 	return nil
 }
 
-func fetchBasicInfo() (*BenchBeeMetadata, error) {
+func FetchBasicInfo() (*BenchBeeMetadata, error) {
 	req, err := http.NewRequest("GET", "http://beta.benchbee.co.kr/home.asp", nil)
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("User-Agent", userAgent)
+	req.Header.Set("User-Agent", defaultUserAgent)
 
 	client := &http.Client{}
 	resp, err := client.Do(req)
@@ -103,7 +104,7 @@ func fetchBasicInfo() (*BenchBeeMetadata, error) {
 	if representativeURL == nil || representativeURL.Host == "" {
 		return nil, errors.New("Invalid Representative Server URL")
 	}
-	serverIPInfo, err := getIPInfo(representativeURL.Hostname())
+	serverIPInfo, err := tool.GetIPInfo(representativeURL.Hostname())
 	if err != nil {
 		return nil, err
 	}
