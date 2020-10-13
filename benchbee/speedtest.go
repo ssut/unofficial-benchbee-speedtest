@@ -22,6 +22,8 @@ const defaultPingCount = 50
 const defaultTestDuration = 6 * time.Second
 const defaultSimultaneousConnections = 5
 
+const defaultBufferSize = 1024 * 4
+
 type SpeedtestIntermediateResultCallback = func(result SpeedtestIntermediateResult)
 
 type SpeedtestWorkerType int
@@ -83,6 +85,9 @@ func NewSpeedtest(info *BenchBeeMetadata, options SpeedtestOptions) *Speedtest {
 	}
 
 	st.websocketDialer = websocket.DefaultDialer
+	st.websocketDialer.EnableCompression = false
+	st.websocketDialer.ReadBufferSize = defaultBufferSize
+	st.websocketDialer.WriteBufferSize = defaultBufferSize
 	if options.Dialer != nil {
 		st.websocketDialer.NetDial = options.Dialer.Dial
 	}
