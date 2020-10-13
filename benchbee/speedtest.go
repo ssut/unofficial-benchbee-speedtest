@@ -229,31 +229,48 @@ func (st *Speedtest) worker(ctx context.Context, workerType SpeedtestWorkerType,
 	}
 }
 
-func (st *Speedtest) TestDownload(cb SpeedtestIntermediateResultCallback) error {
-	respawnChan := make(chan context.Context, st.Options.DownloadTestConcurrency)
+func (st *Speedtest) TestSpeed(testWorkerType SpeedtestWorkerType, cb SpeedtestIntermediateResultCallback) error {
+	var concurrency int
+	var duration time.Duration
+	switch testWorkerType {
+	case SpeedtestDownloadWorker:
+		concurrency = st.Options.DownloadTestConcurrency
+		duration = st.Options.DownloadTestDuration
+		break
+
+	case SpeedtestUploadWorker:
+		concurrency = st.Options.UploadTestConcurrency
+		duration = st.Options.UploadTestDuration
+		break
+
+	default:
+		return fmt.Errorf("Unknown worker type: %d", testWorkerType)
+	}
+
+	respawnChan := make(chan context.Context, concurrency)
 	readyWG := &sync.WaitGroup{}
 	nChan := make(chan int64, 1024)
 	var endsChan <-chan (time.Time)
 	var preparedAt time.Time
-	var cancels = make([]context.CancelFunc, st.Options.DownloadTestConcurrency)
-	for i := 0; i < st.Options.DownloadTestConcurrency; i++ {
+	var cancels = make([]context.CancelFunc, concurrency)
+	for i := 0; i < concurrency; i++ {
 		ctx, cancel := context.WithCancel(context.Background())
 		cancels[i] = cancel
 		readyWG.Add(1)
-		go st.worker(ctx, SpeedtestDownloadWorker, readyWG, nChan, respawnChan)
+		go st.worker(ctx, testWorkerType, readyWG, nChan, respawnChan)
 	}
 	readyWG.Wait()
 	preparedAt = time.Now()
-	endsChan = time.After(st.Options.DownloadTestDuration)
+	endsChan = time.After(duration)
 
-	var bytesRecv uint64
+	var totalBytesProcessed uint64
 	pollFinishChan := make(chan struct{})
-	go func(bytesRecvPointer *uint64, preparedAt time.Time, interval time.Duration, finish <-chan struct{}, cb SpeedtestIntermediateResultCallback) {
+	go func(totalBytesProcessed *uint64, preparedAt time.Time, interval time.Duration, finish <-chan struct{}, cb SpeedtestIntermediateResultCallback) {
 		ticker := time.NewTicker(interval)
 		for {
 			select {
 			case <-ticker.C:
-				n := atomic.LoadUint64(bytesRecvPointer)
+				n := atomic.LoadUint64(totalBytesProcessed)
 				cb(SpeedtestIntermediateResult{
 					Duration: time.Since(preparedAt),
 					Bytes:    n,
@@ -264,16 +281,16 @@ func (st *Speedtest) TestDownload(cb SpeedtestIntermediateResultCallback) error 
 				return
 			}
 		}
-	}(&bytesRecv, preparedAt, st.Options.CallbackPollInterval, pollFinishChan, cb)
+	}(&totalBytesProcessed, preparedAt, st.Options.CallbackPollInterval, pollFinishChan, cb)
 
 	for {
 		select {
 		case n := <-nChan:
-			atomic.AddUint64(&bytesRecv, uint64(n))
+			atomic.AddUint64(&totalBytesProcessed, uint64(n))
 			break
 
 		case ctx := <-respawnChan:
-			go st.worker(ctx, SpeedtestDownloadWorker, readyWG, nChan, respawnChan)
+			go st.worker(ctx, testWorkerType, readyWG, nChan, respawnChan)
 			break
 
 		case endedAt := <-endsChan:
@@ -282,70 +299,17 @@ func (st *Speedtest) TestDownload(cb SpeedtestIntermediateResultCallback) error 
 				cancel()
 			}
 
-			st.Result.TotalDownloadDuration = endedAt.Sub(preparedAt)
-			st.Result.TotalBytesDownloaded = uint64(bytesRecv)
-			close(nChan)
-
-			return nil
-		}
-	}
-}
-
-func (st *Speedtest) TestUpload(cb SpeedtestIntermediateResultCallback) error {
-	respawnChan := make(chan context.Context, st.Options.UploadTestConcurrency)
-	readyWG := &sync.WaitGroup{}
-	nChan := make(chan int64, 1024)
-	var endsChan <-chan (time.Time)
-	var preparedAt time.Time
-	var cancels = make([]context.CancelFunc, st.Options.UploadTestConcurrency)
-	for i := 0; i < st.Options.UploadTestConcurrency; i++ {
-		ctx, cancel := context.WithCancel(context.Background())
-		cancels[i] = cancel
-		readyWG.Add(1)
-		go st.worker(ctx, SpeedtestUploadWorker, readyWG, nChan, respawnChan)
-	}
-	readyWG.Wait()
-	preparedAt = time.Now()
-	endsChan = time.After(st.Options.UploadTestDuration)
-
-	var bytesSent uint64
-	pollFinishChan := make(chan struct{})
-	go func(bytesSentPointer *uint64, preparedAt time.Time, interval time.Duration, finish <-chan struct{}, cb SpeedtestIntermediateResultCallback) {
-		ticker := time.NewTicker(interval)
-		for {
-			select {
-			case <-ticker.C:
-				n := atomic.LoadUint64(bytesSentPointer)
-				cb(SpeedtestIntermediateResult{
-					Duration: time.Since(preparedAt),
-					Bytes:    n,
-				})
+			switch testWorkerType {
+			case SpeedtestDownloadWorker:
+				st.Result.TotalDownloadDuration = endedAt.Sub(preparedAt)
+				st.Result.TotalBytesDownloaded = uint64(totalBytesProcessed)
 				break
 
-			case <-finish:
-				return
+			case SpeedtestUploadWorker:
+				st.Result.TotalUploadDuration = endedAt.Sub(preparedAt)
+				st.Result.TotalBytesUploaded = uint64(totalBytesProcessed)
+				break
 			}
-		}
-	}(&bytesSent, preparedAt, st.Options.CallbackPollInterval, pollFinishChan, cb)
-
-	for {
-		select {
-		case n := <-nChan:
-			atomic.AddUint64(&bytesSent, uint64(n))
-			break
-
-		case ctx := <-respawnChan:
-			go st.worker(ctx, SpeedtestUploadWorker, readyWG, nChan, respawnChan)
-			break
-
-		case endedAt := <-endsChan:
-			pollFinishChan <- struct{}{}
-			for _, cancel := range cancels {
-				cancel()
-			}
-
-			st.Result.TotalUploadDuration = endedAt.Sub(preparedAt)
-			st.Result.TotalBytesUploaded = uint64(bytesSent)
 			close(nChan)
 
 			return nil

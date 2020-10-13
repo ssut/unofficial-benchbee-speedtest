@@ -34,10 +34,14 @@ func testSpeed(options benchbee.SpeedtestOptions) {
 	fmt.Printf("\t     ISP: %s\n", info.ISP)
 
 	st := benchbee.NewSpeedtest(info, options)
+
+	// latency (ping)
 	if err := st.TestPing(); err != nil {
 		log.Fatal(err)
 	}
 	fmt.Printf("\t Latency: %7.2f ms   (%.2f ms jitter)\n", st.Result.PingMillis, st.Result.JitterMillis)
+
+	// download
 	p := mpb.New(mpb.WithWidth(24))
 	baseDownloadName := fmt.Sprintf("\tDownload: %7.2f Mbps", 0.0)
 	downloadBar := p.AddBar(
@@ -51,18 +55,21 @@ func testSpeed(options benchbee.SpeedtestOptions) {
 			decor.Percentage(decor.WCSyncSpace),
 		),
 	)
-	st.TestDownload(func(res benchbee.SpeedtestIntermediateResult) {
+	if err := st.TestSpeed(benchbee.SpeedtestDownloadWorker, func(res benchbee.SpeedtestIntermediateResult) {
 		downloadBar.SetCurrent(res.Duration.Milliseconds())
 		seconds := float64(res.Duration.Milliseconds()) / 1000.0
 		speed := float64(res.Bytes) / seconds / 125000
 		baseDownloadName = fmt.Sprintf("\tDownload: %7.2f Mbps", speed)
-	})
+	}); err != nil {
+		log.Fatal(err)
+	}
 	downloadBar.Abort(true)
 	p.Wait()
 	totalDownloadSeconds := float64(st.Result.TotalDownloadDuration.Milliseconds()) / 1000.0
 	averageDownloadSpeed := float64(st.Result.TotalBytesDownloaded) / totalDownloadSeconds / 125000
 	fmt.Printf("\tDownload: %7.2f Mbps (data used: %s)\n", averageDownloadSpeed, humanize.Bytes(st.Result.TotalBytesDownloaded))
 
+	// upload
 	p = mpb.New(mpb.WithWidth(24))
 	baseUploadName := fmt.Sprintf("\t  Upload: %7.2f Mbps", 0.0)
 	uploadBar := p.AddBar(
@@ -76,12 +83,14 @@ func testSpeed(options benchbee.SpeedtestOptions) {
 			decor.Percentage(decor.WCSyncSpace),
 		),
 	)
-	st.TestUpload(func(res benchbee.SpeedtestIntermediateResult) {
+	if err := st.TestSpeed(benchbee.SpeedtestUploadWorker, func(res benchbee.SpeedtestIntermediateResult) {
 		uploadBar.SetCurrent(res.Duration.Milliseconds())
 		seconds := float64(res.Duration.Milliseconds()) / 1000.0
 		speed := float64(res.Bytes) / seconds / 125000
 		baseUploadName = fmt.Sprintf("\t  Upload: %7.2f Mbps", speed)
-	})
+	}); err != nil {
+		log.Fatal(err)
+	}
 	uploadBar.Abort(true)
 	p.Wait()
 
